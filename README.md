@@ -2,6 +2,10 @@
 
 Implementation of Covariate-GPLVM, accompanying our ICML 2019 paper [Decomposing feature-level variation with Covariate Gaussian Process Latent Variable Models](http://proceedings.mlr.press/v97/martens19a.html). 
 
+![](fig/figure1.png)
+
+See [here](https://github.com/kasparmartens/c-GPLVM/tree/master/examples) for a code example. 
+
 ```
 @InProceedings{martens2019,
   title = 	 {Decomposing feature-level variation with {C}ovariate {G}aussian {P}rocess {L}atent {V}ariable {M}odels},
