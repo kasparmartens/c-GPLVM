@@ -12,7 +12,7 @@ from .kernels import RBF, meanzeroRBF, addint_2D_kernel_decomposition, addint_ke
 # class for GP-regression with inputs (z, x) and 1D output y
 class GP_2D_AddInt(nn.Module):
 
-    def __init__(self, mean_zero, covariate_dim, z_inducing, x_inducing, kernel_var_init=None, ls_init=None):
+    def __init__(self, z_inducing, x_inducing, mean_zero=True, covariate_dim=1, kernel_var_init=None, ls_init=None):
 
         super(GP_2D_AddInt, self).__init__()
 
@@ -95,12 +95,12 @@ class GP_2D_AddInt(nn.Module):
         K_uu = self.get_K_without_noise(self.z_u, self.z_u, self.x_u, self.x_u, jitter=self.jitter)
         K_uf = self.get_K_without_noise(self.z_u, z, self.x_u, x)
         L = torch.cholesky(K_uu)
-        A = torch.trtrs(K_uf, L, upper=False)[0] / sigma
+        A = torch.triangular_solve(K_uf, L, upper=False)[0]
         AAT = torch.mm(A, A.t())
         B = AAT + torch.eye(self.M)
         LB = torch.cholesky(B)
         Aerr = torch.mm(A, y)
-        c = torch.trtrs(Aerr, LB, upper=False)[0] / sigma
+        c = torch.triangular_solve(Aerr, LB, upper=False)[0] / sigma
 
         Kdiag = self.get_K_diag(z, x)
 
@@ -126,15 +126,15 @@ class GP_2D_AddInt(nn.Module):
         K_us = self.get_K_without_noise(self.z_u, z_star, self.x_u, x_star)
 
         L = torch.cholesky(K_uu)
-        A = torch.trtrs(K_uf, L, upper=False)[0] / sigma
+        A = torch.triangular_solve(K_uf, L, upper=False)[0] / sigma
         AAT = torch.mm(A, A.t())
         B = AAT + torch.eye(self.M)
         LB = torch.cholesky(B)
         Aerr = torch.mm(A, y)
-        c = torch.trtrs(Aerr, LB, upper=False)[0] / sigma
+        c = torch.triangular_solve(Aerr, LB, upper=False)[0] / sigma
 
-        tmp1 = torch.trtrs(K_us, L, upper=False)[0]
-        tmp2 = torch.trtrs(tmp1, LB, upper=False)[0]
+        tmp1 = torch.triangular_solve(K_us, L, upper=False)[0]
+        tmp2 = torch.triangular_solve(tmp1, LB, upper=False)[0]
         mean = self.intercept + torch.mm(tmp2.t(), c)
 
         Kdiag = self.get_K_diag(z_star, x_star)
@@ -152,14 +152,10 @@ class GP_2D_AddInt(nn.Module):
         y = (y - self.intercept)
         sigma2 = self.get_noise_var()
 
-        sigma = torch.sqrt(sigma2)
-        K_all_inv = torch.inverse(
-            self.get_K_without_noise(z, z, x, x, jitter=self.jitter) + sigma2 * torch.eye(y.size()[0]))
+        K_all = self.get_K_without_noise(z, z, x, x, jitter=self.jitter) + sigma2 * torch.eye(y.size()[0])
+        L_all = torch.cholesky(K_all)
+        K_all_inv = torch.cholesky_inverse(L_all)
 
-        K_uu = self.get_K_without_noise(self.z_u, self.z_u, self.x_u, self.x_u, jitter=self.jitter,
-                                        which_kernels=which_kernels)
-        K_uf = self.get_K_without_noise(self.z_u, z, self.x_u, x, which_kernels=which_kernels)
-        K_us = self.get_K_without_noise(self.z_u, z_star, self.x_u, x_star, which_kernels=which_kernels)
         K_sf = self.get_K_without_noise(z_star, z, x_star, x, which_kernels=which_kernels)
         K_ss = self.get_K_without_noise(z_star, z_star, x_star, x_star, which_kernels=which_kernels)
 
@@ -229,12 +225,12 @@ class GP_2D_INT(nn.Module):
         K_uu = self.get_K_without_noise(self.z_u, self.z_u, self.x_u, self.x_u, jitter=self.jitter)
         K_uf = self.get_K_without_noise(self.z_u, z, self.x_u, x)
         L = torch.cholesky(K_uu)
-        A = torch.trtrs(K_uf, L, upper=False)[0] / sigma
+        A = torch.triangular_solve(K_uf, L, upper=False)[0] / sigma
         AAT = torch.mm(A, A.t())
         B = AAT + torch.eye(self.M)
         LB = torch.cholesky(B)
         Aerr = torch.mm(A, y)
-        c = torch.trtrs(Aerr, LB, upper=False)[0] / sigma
+        c = torch.triangular_solve(Aerr, LB, upper=False)[0] / sigma
 
         Kdiag = self.get_kernel_var().repeat(N)
 
@@ -259,15 +255,15 @@ class GP_2D_INT(nn.Module):
         K_us = self.get_K_without_noise(self.z_u, z_star, self.x_u, x_star)
 
         L = torch.cholesky(K_uu)
-        A = torch.trtrs(K_uf, L, upper=False)[0] / sigma
+        A = torch.triangular_solve(K_uf, L, upper=False)[0] / sigma
         AAT = torch.mm(A, A.t())
         B = AAT + torch.eye(self.M)
         LB = torch.cholesky(B)
         Aerr = torch.mm(A, y)
-        c = torch.trtrs(Aerr, LB, upper=False)[0] / sigma
+        c = torch.triangular_solve(Aerr, LB, upper=False)[0] / sigma
 
-        tmp1 = torch.trtrs(K_us, L, upper=False)[0]
-        tmp2 = torch.trtrs(tmp1, LB, upper=False)[0]
+        tmp1 = torch.triangular_solve(K_us, L, upper=False)[0]
+        tmp2 = torch.triangular_solve(tmp1, LB, upper=False)[0]
         mean = self.intercept + torch.mm(tmp2.t(), c)
 
         K_ss = self.get_K_without_noise(z_star, z_star, x_star, x_star)
@@ -350,12 +346,12 @@ class GP_2D_ADD(nn.Module):
         K_uu = self.get_K_without_noise(self.z_u, self.z_u, self.x_u, self.x_u, jitter=self.jitter)
         K_uf = self.get_K_without_noise(self.z_u, z, self.x_u, x)
         L = torch.cholesky(K_uu)
-        A = torch.trtrs(K_uf, L, upper=False)[0] / sigma
+        A = torch.triangular_solve(K_uf, L, upper=False)[0] / sigma
         AAT = torch.mm(A, A.t())
         B = AAT + torch.eye(self.M)
         LB = torch.cholesky(B)
         Aerr = torch.mm(A, y)
-        c = torch.trtrs(Aerr, LB, upper=False)[0] / sigma
+        c = torch.triangular_solve(Aerr, LB, upper=False)[0] / sigma
 
         K_ff = self.get_K_without_noise(z, z, x, x)
         Kdiag = K_ff.diag()
@@ -455,12 +451,12 @@ class GP_1D(nn.Module):
         K_uu = self.get_K_without_noise(self.z_u, self.z_u, jitter=self.jitter)
         K_uf = self.get_K_without_noise(self.z_u, z)
         L = torch.cholesky(K_uu)
-        A = torch.trtrs(K_uf, L, upper=False)[0] / sigma
+        A = torch.triangular_solve(K_uf, L, upper=False)[0] / sigma
         AAT = torch.mm(A, A.t())
         B = AAT + torch.eye(self.M)
         LB = torch.cholesky(B)
         Aerr = torch.mm(A, y)
-        c = torch.trtrs(Aerr, LB, upper=False)[0] / sigma
+        c = torch.triangular_solve(Aerr, LB, upper=False)[0] / sigma
 
         K_ff = self.get_K_without_noise(z, z)
         Kdiag = K_ff.diag()
@@ -484,15 +480,15 @@ class GP_1D(nn.Module):
         K_us = self.get_K_without_noise(self.z_u, z_star, which_kernels=which_kernels)
 
         L = torch.cholesky(K_uu)
-        A = torch.trtrs(K_uf, L, upper=False)[0] / sigma
+        A = torch.triangular_solve(K_uf, L, upper=False)[0] / sigma
         AAT = torch.mm(A, A.t())
         B = AAT + torch.eye(self.M)
         LB = torch.cholesky(B)
         Aerr = torch.mm(A, y)
-        c = torch.trtrs(Aerr, LB, upper=False)[0] / sigma
+        c = torch.triangular_solve(Aerr, LB, upper=False)[0] / sigma
 
-        tmp1 = torch.trtrs(K_us, L, upper=False)[0]
-        tmp2 = torch.trtrs(tmp1, LB, upper=False)[0]
+        tmp1 = torch.triangular_solve(K_us, L, upper=False)[0]
+        tmp2 = torch.triangular_solve(tmp1, LB, upper=False)[0]
         mean = self.intercept + torch.mm(tmp2.t(), c)
 
         K_ss = self.get_K_without_noise(z_star, z_star)
