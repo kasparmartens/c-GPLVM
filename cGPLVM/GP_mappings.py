@@ -142,6 +142,33 @@ class GP_2D_AddInt(nn.Module):
 
         return mean.reshape(-1), var
 
+    def predict_decomposition(self, z, x, y, z_star, x_star, which_kernels):
+        subset = ~torch.isnan(y).reshape(-1)
+        if subset.sum() > 0:
+            y = y[subset, :]
+            z = z[subset, :]
+            x = x[subset, :]
+        Nstar = z_star.size()[0]
+        y = (y - self.intercept)
+        sigma2 = self.get_noise_var()
+
+        sigma = torch.sqrt(sigma2)
+        K_all_inv = torch.inverse(
+            self.get_K_without_noise(z, z, x, x, jitter=self.jitter) + sigma2 * torch.eye(y.size()[0]))
+
+        K_uu = self.get_K_without_noise(self.z_u, self.z_u, self.x_u, self.x_u, jitter=self.jitter,
+                                        which_kernels=which_kernels)
+        K_uf = self.get_K_without_noise(self.z_u, z, self.x_u, x, which_kernels=which_kernels)
+        K_us = self.get_K_without_noise(self.z_u, z_star, self.x_u, x_star, which_kernels=which_kernels)
+        K_sf = self.get_K_without_noise(z_star, z, x_star, x, which_kernels=which_kernels)
+        K_ss = self.get_K_without_noise(z_star, z_star, x_star, x_star, which_kernels=which_kernels)
+
+        tmp = torch.mm(K_sf, K_all_inv)
+        mean = torch.mm(tmp, y)
+        var = torch.diag(K_ss - torch.mm(tmp, K_sf.t()))
+
+        return mean.reshape(-1), var
+
     def prior_loss(self):
         p_ls = Gamma(5.0, 1.0).log_prob(self.get_ls()).sum()
         p_var = Gamma(1.0, 1.0).log_prob(self.get_kernel_var()).sum()
