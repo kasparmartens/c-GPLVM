@@ -55,17 +55,20 @@ class GPLVM(nn.Module):
 
         return loss.item()
 
-    def predict(self, z_star, which_kernels=None):
+    def predict(self, z_star, which_kernels=None, add_likelihood_variance=False, to_numpy=False):
         N_star = z_star.size()[0]
         f_mean = torch.zeros(N_star, self.output_dim)
         f_var = torch.zeros(N_star, self.output_dim)
         for j in range(self.output_dim):
             f_mean[:, j], f_var[:, j] = self.GP_mappings[j].predict(self.z_mu, self.Y[:, j:(j + 1)], z_star,
-                                                                    which_kernels)
+                                                                    which_kernels, add_likelihood_variance)
 
         f_sd = torch.sqrt(1e-4 + f_var)
 
-        return f_mean.detach(), f_sd.detach()
+        if to_numpy:
+            f_mean, f_sd = f_mean.detach().numpy(), f_sd.detach().numpy()
+
+        return f_mean, f_sd
 
     def train(self, n_iter, verbose=200):
 
@@ -101,6 +104,9 @@ class cGPLVM(nn.Module):
     def get_kernel_vars(self):
         return np.array([mapping.get_kernel_var().detach().numpy() for mapping in self.GP_mappings])
 
+    def get_noise_sd(self):
+        return np.array([mapping.get_noise_var().sqrt().detach().numpy() for mapping in self.GP_mappings])
+
     def get_lengthscales(self):
         return np.array([mapping.get_ls().detach().numpy() for mapping in self.GP_mappings])
 
@@ -129,19 +135,22 @@ class cGPLVM(nn.Module):
 
         return loss.item()
 
-    def predict(self, z_star, x_star):
+    def predict(self, z_star, x_star, add_likelihood_variance=False, to_numpy=False):
         N_star = z_star.size()[0]
         f_mean = torch.zeros(N_star, self.output_dim)
         f_var = torch.zeros(N_star, self.output_dim)
         for j in range(self.output_dim):
             f_mean[:, j], f_var[:, j] = self.GP_mappings[j].predict(self.z_mu, self.x, self.Y[:, j:(j + 1)], z_star,
-                                                                    x_star)
+                                                                    x_star, add_likelihood_variance)
 
         f_sd = torch.sqrt(1e-6 + f_var)
 
-        return f_mean.detach(), f_sd.detach()
+        if to_numpy:
+            f_mean, f_sd = f_mean.detach().numpy(), f_sd.detach().numpy()
 
-    def predict_decomposition(self, z_star, x_star, which_kernels=None):
+        return f_mean, f_sd
+
+    def predict_decomposition(self, z_star, x_star, which_kernels=None, to_numpy=False):
         N_star = z_star.size()[0]
         f_mean = torch.zeros(N_star, self.output_dim)
         f_var = torch.zeros(N_star, self.output_dim)
@@ -149,10 +158,12 @@ class cGPLVM(nn.Module):
             f_mean[:, j], f_var[:, j] = self.GP_mappings[j].predict_decomposition(self.z_mu, self.x,
                                                                                   self.Y[:, j:(j + 1)], z_star, x_star,
                                                                                   which_kernels)
-
         f_sd = torch.sqrt(1e-6 + f_var)
 
-        return f_mean.detach(), f_sd.detach()
+        if to_numpy:
+            f_mean, f_sd = f_mean.detach().numpy(), f_sd.detach().numpy()
+
+        return f_mean, f_sd
 
     def train(self, n_iter, verbose=200):
 

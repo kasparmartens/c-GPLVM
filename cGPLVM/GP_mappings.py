@@ -5,7 +5,7 @@ import numpy as np
 from torch.distributions.gamma import Gamma
 from torch.distributions.normal import Normal
 
-from .helpers import my_softplus, create_2D_grid, grid_helper
+from .helpers import my_softplus, grid_helper
 from .kernels import RBF, meanzeroRBF, addint_2D_kernel_decomposition, addint_kernel_diag
 
 
@@ -109,7 +109,7 @@ class GP_2D_AddInt(nn.Module):
         bound += 0.5 * torch.sum(torch.pow(c, 2)) - 0.5 * torch.sum(Kdiag) / sigma2 + 0.5 * torch.sum(torch.diag(AAT))
         return bound
 
-    def predict(self, z, x, y, z_star, x_star):
+    def predict(self, z, x, y, z_star, x_star, add_likelihood_variance=False):
         subset = ~torch.isnan(y).reshape(-1)
         if subset.sum() > 0:
             y = y[subset, :]
@@ -140,6 +140,9 @@ class GP_2D_AddInt(nn.Module):
         Kdiag = self.get_K_diag(z_star, x_star)
         var = Kdiag + torch.pow(tmp2, 2).sum(dim=0) - torch.pow(tmp1, 2).sum(dim=0)
 
+        if add_likelihood_variance:
+            var += self.get_noise_var()
+
         return mean.reshape(-1), var
 
     def predict_decomposition(self, z, x, y, z_star, x_star, which_kernels):
@@ -166,7 +169,7 @@ class GP_2D_AddInt(nn.Module):
         return mean.reshape(-1), var
 
     def prior_loss(self):
-        p_ls = Gamma(5.0, 1.0).log_prob(self.get_ls()).sum()
+        p_ls = Gamma(50.0, 10.0).log_prob(self.get_ls()).sum()
         p_var = Gamma(1.0, 1.0).log_prob(self.get_kernel_var()).sum()
         return -1.0 * (p_ls + p_var)
 
@@ -177,7 +180,7 @@ class GP_2D_AddInt(nn.Module):
 # GP with 2D ARD kernel on (z, x)
 class GP_2D_INT(nn.Module):
 
-    def __init__(self, inducing_x=None):
+    def __init__(self, z_inducing=None, x_inducing=None):
 
         super(GP_2D_INT, self).__init__()
 
@@ -189,11 +192,8 @@ class GP_2D_INT(nn.Module):
         self.noise_var = nn.Parameter(-1.0 * torch.ones(1), requires_grad=True)
         self.intercept = nn.Parameter(torch.zeros(1), requires_grad=True)
 
-        # inducing points
-        grid = torch.linspace(-3, 3, steps=10)
-        if inducing_x is None:
-            inducing_x = grid
-        self.z_u, self.x_u = create_2D_grid(grid, inducing_x, device="cpu")
+        # create a grid of inducing points (assuming one-dimensional z and x)
+        self.z_u, self.x_u = grid_helper(z_inducing, x_inducing)
         self.M = self.z_u.size()[0]
 
     def get_kernel_var(self):
@@ -239,7 +239,7 @@ class GP_2D_INT(nn.Module):
         bound += 0.5 * torch.sum(torch.pow(c, 2)) - 0.5 * torch.sum(Kdiag) / sigma2 + 0.5 * torch.sum(torch.diag(AAT))
         return bound
 
-    def predict(self, z, x, y, z_star, x_star):
+    def predict(self, z, x, y, z_star, x_star, add_likelihood_variance=False):
         subset = ~torch.isnan(y).reshape(-1)
         if subset.sum() > 0:
             y = y[subset, :]
@@ -270,6 +270,9 @@ class GP_2D_INT(nn.Module):
         Kdiag = K_ss.diag()
         var = Kdiag + torch.pow(tmp2, 2).sum(dim=0) - torch.pow(tmp1, 2).sum(dim=0)
 
+        if add_likelihood_variance:
+            var += self.get_noise_var()
+
         return mean.reshape(-1), var
 
     def log_prob_fullrank(self, z, x, y):
@@ -291,9 +294,9 @@ class GP_2D_INT(nn.Module):
 # additive GP
 class GP_2D_ADD(nn.Module):
 
-    def __init__(self):
+    def __init__(self, z_inducing, x_inducing):
 
-        super(GP_2D_ADD, self).__init__()
+        super().__init__()
 
         self.jitter = 1e-4
 
@@ -304,8 +307,8 @@ class GP_2D_ADD(nn.Module):
         self.intercept = nn.Parameter(torch.zeros(1), requires_grad=True)
 
         # inducing points
-        grid = torch.linspace(-3, 3, steps=10)
-        self.z_u, self.x_u = create_2D_grid(grid, grid, device="cpu")
+        grid = torch.linspace(-3, 3, steps=10).reshape(-1, 1)
+        self.z_u, self.x_u = grid_helper(z_inducing, x_inducing)
         self.M = self.z_u.size()[0]
 
     def get_kernel_var(self):
@@ -361,7 +364,7 @@ class GP_2D_ADD(nn.Module):
         bound += 0.5 * torch.sum(torch.pow(c, 2)) - 0.5 * torch.sum(Kdiag) / sigma2 + 0.5 * torch.sum(torch.diag(AAT))
         return bound
 
-    def predict(self, z, x, y, z_star, x_star):
+    def predict(self, z, x, y, z_star, x_star, add_likelihood_variance=False):
         subset = ~torch.isnan(y).reshape(-1)
         if subset.sum() > 0:
             y = y[subset, :]
@@ -384,6 +387,10 @@ class GP_2D_ADD(nn.Module):
         tmp = torch.mm(K_sf, K_all_inv)
         mean = self.intercept + torch.mm(tmp, y)
         var = torch.diag(K_ss - torch.mm(tmp, K_sf.t()))
+
+        if add_likelihood_variance:
+            var += self.get_noise_var()
+
         return mean.reshape(-1), var
 
     def log_prob_fullrank(self, z, x, y):
@@ -403,9 +410,9 @@ class GP_2D_ADD(nn.Module):
 # GP with 1D inputs (useful for additive)
 class GP_1D(nn.Module):
 
-    def __init__(self):
+    def __init__(self, z_inducing):
 
-        super(GP_1D, self).__init__()
+        super().__init__()
 
         self.jitter = 1e-4
 
@@ -416,7 +423,7 @@ class GP_1D(nn.Module):
         self.intercept = nn.Parameter(torch.zeros(1), requires_grad=True)
 
         # inducing points
-        self.z_u = torch.linspace(-3, 3, steps=10).reshape(-1, 1)
+        self.z_u = z_inducing
         self.M = self.z_u.size()[0]
 
     def get_kernel_var(self):
@@ -466,7 +473,7 @@ class GP_1D(nn.Module):
         bound += 0.5 * torch.sum(torch.pow(c, 2)) - 0.5 * torch.sum(Kdiag) / sigma2 + 0.5 * torch.sum(torch.diag(AAT))
         return bound
 
-    def predict(self, z, y, z_star, which_kernels):
+    def predict(self, z, y, z_star, which_kernels, add_likelihood_variance=False):
         subset = ~torch.isnan(y).reshape(-1)
         if subset.sum() > 0:
             y = y[subset, :]
@@ -494,6 +501,9 @@ class GP_1D(nn.Module):
         K_ss = self.get_K_without_noise(z_star, z_star)
         Kdiag = K_ss.diag()
         var = Kdiag + torch.pow(tmp2, 2).sum(dim=0) - torch.pow(tmp1, 2).sum(dim=0)
+
+        if add_likelihood_variance:
+            var += self.get_noise_var()
 
         return mean.reshape(-1), var
 
