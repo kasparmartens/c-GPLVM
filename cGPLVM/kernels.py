@@ -35,7 +35,6 @@ def meanzeroRBF(x, y, lengthscale, variance, a, b, jitter=None):
         out += jitter * torch.eye(N)
     return out
 
-
 # calculates the diagonal of mean-zero kernel matrix
 def diag_meanzeroRBF(x, lengthscale, variance, a, b, jitter=None):
     N = x.size()[0]
@@ -56,14 +55,16 @@ def diag_meanzeroRBF(x, lengthscale, variance, a, b, jitter=None):
     return out
 
 
-def addint_2D_kernel_decomposition(z, z2, x, x2, ls, var, a=-3, b=3, mean_zero=True, jitter=None):
+def addint_2D_kernel_decomposition(z, z2, x, x2, ls, var, a_z=-2, b_z=2, a_x=-2, b_x=2, mean_zero=True, jitter=None):
     if mean_zero:
-        K_zz = meanzeroRBF(z, z2, ls[0], var[0], a, b, jitter)
 
-        K_xx = meanzeroRBF(x, x2, ls[1], var[1], a, b, jitter)
+        K_zz = meanzeroRBF(z, z2, ls[0], var[0], a_z, b_z, jitter)
 
-        K_intz = meanzeroRBF(z, z2, ls[2], var[2], a, b, jitter)
-        K_intx = meanzeroRBF(x, x2, ls[3], 1.0, a, b, jitter)
+        K_xx = meanzeroRBF(x, x2, ls[1], var[1], a_x, b_x, jitter)
+
+        K_intz = meanzeroRBF(z, z2, ls[2], var[2], a_z, b_z, jitter)
+        K_intx = meanzeroRBF(x, x2, ls[3], 1.0, a_x, b_x, jitter)
+
         K_int = K_intz * K_intx
     else:
         K_zz = RBF(z, z2, ls[0], var[0], jitter)
@@ -77,22 +78,25 @@ def addint_2D_kernel_decomposition(z, z2, x, x2, ls, var, a=-3, b=3, mean_zero=T
     return K_zz, K_xx, K_int
 
 
-def addint_kernel_diag(z, x, ls, var, a=-3, b=3, mean_zero=True, jitter=None):
+def addint_kernel_diag(z, x, ls, var, a_z=-2, b_z=2, a_x=-2, b_x=2, mean_zero=True, jitter=None):
     P = x.shape[1]
     if mean_zero:
         # f(z)
-        K_zz = diag_meanzeroRBF(z, ls[0], var[0], a, b, jitter)
+        K_zz = diag_meanzeroRBF(z, ls[0], var[0], a_z, b_z, jitter)
         # f(x)
-        K_xx = sum([diag_meanzeroRBF(x[:, j:(j + 1)], ls[1 + j], var[1 + j], a, b, jitter) for j in range(P)])
+        K_xx = sum([diag_meanzeroRBF(x[:, j:(j + 1)], ls[1 + j], var[1 + j], a_x, b_x, jitter) for j in range(P)])
 
         # f(x, z)
-        def productkernel(j, z, x, ls, var, a, b, jitter):
-            K_intz = diag_meanzeroRBF(z, ls[1 + j + P], var[1 + j + P], a, b, jitter)
-            K_intx = diag_meanzeroRBF(x[:, j:(j + 1)], ls[1 + j + 2 * P], 1.0, a, b, jitter)
+        def productkernel(j, z, x, ls, var, jitter):
+            K_intz = diag_meanzeroRBF(z, ls[1 + j + P], var[1 + j + P], a_z, b_z, jitter)
+            K_intx = diag_meanzeroRBF(x[:, j:(j + 1)], ls[1 + j + 2 * P], 1.0, a_x, b_x, jitter)
             return K_intz * K_intx
 
-        K_int = sum([productkernel(j, z, x, ls, var, a, b, jitter) for j in range(P)])
+        K_int = sum([productkernel(j, z, x, ls, var, jitter) for j in range(P)])
     else:
-        raise ValueError("not implemented")
+        N = x.shape[0]
+        K_zz = var[0] * torch.ones(N)
+        K_xx = var[1] * torch.ones(N)
+        K_int = var[2] * torch.ones(N)
 
     return K_zz, K_xx, K_int

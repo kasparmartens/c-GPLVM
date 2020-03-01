@@ -12,13 +12,16 @@ from .kernels import RBF, meanzeroRBF, addint_2D_kernel_decomposition, addint_ke
 # class for GP-regression with inputs (z, x) and 1D output y
 class GP_2D_AddInt(nn.Module):
 
-    def __init__(self, z_inducing, x_inducing, mean_zero=True, covariate_dim=1, kernel_var_init=None, ls_init=None):
+    def __init__(self, z_inducing, x_inducing, mean_zero=True, covariate_dim=1, intercept_init=None, kernel_var_init=None, ls_init=None,
+                 a_z=-2.0, b_z=2.0, a_x=-2.0, b_x=2.0):
 
-        super(GP_2D_AddInt, self).__init__()
+        super().__init__()
 
         self.mean_zero = mean_zero
-        self.a = -2.0
-        self.b = 2.0
+        self.a_z = a_z
+        self.b_z = b_z
+        self.a_x = a_x
+        self.b_x = b_x
         self.jitter = 1e-4
 
         self.covariate_dim = covariate_dim
@@ -43,7 +46,11 @@ class GP_2D_AddInt(nn.Module):
             self.var = nn.Parameter(kernel_var_init.clone(), requires_grad=True)
 
         self.noise_var = nn.Parameter(-1.0 * torch.ones(1), requires_grad=True)
-        self.intercept = nn.Parameter(torch.zeros(1), requires_grad=True)
+
+        if intercept_init is None:
+            self.intercept = nn.Parameter(torch.zeros(1), requires_grad=True)
+        else:
+            self.intercept = nn.Parameter(intercept_init, requires_grad=True)
 
         # inducing points
         self.z_u, self.x_u = grid_helper(z_inducing, x_inducing)
@@ -59,8 +66,9 @@ class GP_2D_AddInt(nn.Module):
         return 1e-4 + my_softplus(self.noise_var)
 
     def kernel_decomposition_single_covariate(self, z, z2, x, x2, jitter=None):
-        K1, K2, K3 = addint_2D_kernel_decomposition(z, z2, x, x2, self.get_ls(), self.get_kernel_var(), a=self.a,
-                                                    b=self.b, mean_zero=self.mean_zero, jitter=jitter)
+        K1, K2, K3 = addint_2D_kernel_decomposition(z, z2, x, x2, self.get_ls(), self.get_kernel_var(),
+                                                    a_z=self.a_z, b_z=self.b_z, a_x=self.a_x, b_x=self.b_x,
+                                                    mean_zero=self.mean_zero, jitter=jitter)
         return K1, K2, K3
 
     def kernel_decomposition(self, z, z2, x, x2, jitter=None):
@@ -77,7 +85,8 @@ class GP_2D_AddInt(nn.Module):
             return which_kernels[0] * K1 + which_kernels[1] * K2 + which_kernels[2] * K3
 
     def get_K_diag(self, z, x):
-        K1diag, K2diag, K3diag = addint_kernel_diag(z, x, self.get_ls(), self.get_kernel_var(), a=self.a, b=self.b,
+        K1diag, K2diag, K3diag = addint_kernel_diag(z, x, self.get_ls(), self.get_kernel_var(),
+                                                    a_z=self.a_z, b_z=self.b_z, a_x=self.a_x, b_x=self.b_x,
                                                     mean_zero=self.mean_zero)
         return K1diag + K2diag + K3diag
 
@@ -163,7 +172,7 @@ class GP_2D_AddInt(nn.Module):
         K_ss = self.get_K_without_noise(z_star, z_star, x_star, x_star, which_kernels=which_kernels)
 
         tmp = torch.mm(K_sf, K_all_inv)
-        mean = torch.mm(tmp, y)
+        mean = self.intercept + torch.mm(tmp, y)
         var = torch.diag(K_ss - torch.mm(tmp, K_sf.t()))
 
         return mean.reshape(-1), var
@@ -180,17 +189,21 @@ class GP_2D_AddInt(nn.Module):
 # GP with 2D ARD kernel on (z, x)
 class GP_2D_INT(nn.Module):
 
-    def __init__(self, z_inducing=None, x_inducing=None):
+    def __init__(self, z_inducing=None, x_inducing=None, intercept_init=None):
 
-        super(GP_2D_INT, self).__init__()
+        super().__init__()
 
         self.jitter = 1e-3
 
         # kernel hyperparameters
-        self.ls = nn.Parameter(torch.ones(2), requires_grad=True)
+        self.ls = nn.Parameter(2.0*torch.ones(2), requires_grad=True)
         self.var = nn.Parameter(torch.zeros(1), requires_grad=True)
         self.noise_var = nn.Parameter(-1.0 * torch.ones(1), requires_grad=True)
-        self.intercept = nn.Parameter(torch.zeros(1), requires_grad=True)
+
+        if intercept_init is None:
+            self.intercept = nn.Parameter(torch.zeros(1), requires_grad=True)
+        else:
+            self.intercept = nn.Parameter(intercept_init, requires_grad=True)
 
         # create a grid of inducing points (assuming one-dimensional z and x)
         self.z_u, self.x_u = grid_helper(z_inducing, x_inducing)
@@ -294,7 +307,7 @@ class GP_2D_INT(nn.Module):
 # additive GP
 class GP_2D_ADD(nn.Module):
 
-    def __init__(self, z_inducing, x_inducing):
+    def __init__(self, z_inducing, x_inducing, intercept_init=None):
 
         super().__init__()
 
@@ -304,7 +317,11 @@ class GP_2D_ADD(nn.Module):
         self.ls = nn.Parameter(torch.ones(2), requires_grad=True)
         self.var = nn.Parameter(torch.zeros(2), requires_grad=True)
         self.noise_var = nn.Parameter(-1.0 * torch.ones(1), requires_grad=True)
-        self.intercept = nn.Parameter(torch.zeros(1), requires_grad=True)
+
+        if intercept_init is None:
+            self.intercept = nn.Parameter(torch.zeros(1), requires_grad=True)
+        else:
+            self.intercept = nn.Parameter(intercept_init, requires_grad=True)
 
         # inducing points
         grid = torch.linspace(-3, 3, steps=10).reshape(-1, 1)
@@ -410,17 +427,21 @@ class GP_2D_ADD(nn.Module):
 # GP with 1D inputs (useful for additive)
 class GP_1D(nn.Module):
 
-    def __init__(self, z_inducing):
+    def __init__(self, z_inducing, intercept_init=None):
 
         super().__init__()
 
         self.jitter = 1e-4
 
         # kernel hyperparameters
-        self.ls = nn.Parameter(torch.ones(1), requires_grad=True)
+        self.ls = nn.Parameter(3.0*torch.ones(1), requires_grad=True)
         self.var = nn.Parameter(torch.zeros(1), requires_grad=True)
         self.noise_var = nn.Parameter(-1.0 * torch.ones(1), requires_grad=True)
-        self.intercept = nn.Parameter(torch.zeros(1), requires_grad=True)
+
+        if intercept_init is None:
+            self.intercept = nn.Parameter(torch.zeros(1), requires_grad=True)
+        else:
+            self.intercept = nn.Parameter(intercept_init, requires_grad=True)
 
         # inducing points
         self.z_u = z_inducing
@@ -523,15 +544,19 @@ class GP_1D(nn.Module):
 
 class linear_mapping(nn.Module):
 
-    def __init__(self):
-        super(linear_mapping, self).__init__()
+    def __init__(self, intercept_init=None):
+        super().__init__()
 
         self.jitter = 1e-3
 
         # parameters
-        self.intercept = nn.Parameter(torch.zeros(1), requires_grad=True)
         self.beta = nn.Parameter(torch.zeros(3), requires_grad=True)
         self.noise_var = nn.Parameter(-1.0 * torch.ones(1), requires_grad=True)
+
+        if intercept_init is None:
+            self.intercept = nn.Parameter(torch.zeros(1), requires_grad=True)
+        else:
+            self.intercept = nn.Parameter(intercept_init, requires_grad=True)
 
     def get_noise_var(self):
         return 1e-4 + my_softplus(self.noise_var)

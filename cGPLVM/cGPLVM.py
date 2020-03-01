@@ -19,8 +19,10 @@ class GPLVM(nn.Module):
             self.z_mu = nn.Parameter(z_init.clone(), requires_grad=True)
             self.z_logsigma = nn.Parameter(-1.0 * torch.ones_like(z_init), requires_grad=True)
 
+        Y_colmeans = Y.mean(axis=0)
+
         # for every output dimension, create a separate GP object
-        self.GP_mappings = nn.ModuleList([GP_mapping(**kwargs) for j in range(self.output_dim)])
+        self.GP_mappings = nn.ModuleList([GP_mapping(intercept_init=Y_colmeans[j], **kwargs) for j in range(self.output_dim)])
 
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
 
@@ -96,8 +98,10 @@ class cGPLVM(nn.Module):
             self.z_mu = nn.Parameter(z_init.clone(), requires_grad=True)
             self.z_logsigma = nn.Parameter(-1.0 * torch.ones_like(z_init), requires_grad=True)
 
+        Y_colmeans = Y.mean(axis=0)
+
         # for every output dimension, create a separate GP object
-        self.GP_mappings = nn.ModuleList([GP_mapping(**kwargs) for j in range(self.output_dim)])
+        self.GP_mappings = nn.ModuleList([GP_mapping(intercept_init=Y_colmeans[j], **kwargs) for j in range(self.output_dim)])
 
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
 
